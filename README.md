@@ -1,4 +1,14 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NID Compact
+
+A production-ready Next.js 16 blog site with daily AI-generated content powered by Google Gemini.
+
+## Features
+
+- **Next.js 16** with App Router and TypeScript
+- **MDX blog** with frontmatter support via `gray-matter`
+- **Tailwind CSS v4** with shadcn/ui design tokens
+- **Framer Motion** animations
+- **Daily content generation** via Google Gemini 1.5 Flash
 
 ## Getting Started
 
@@ -6,31 +16,27 @@ First, run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Content Generation
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Set the `GEMINI_API_KEY` environment variable and run:
 
-## Learn More
+```bash
+npx tsx scripts/generate-content.ts
+```
 
-To learn more about Next.js, take a look at the following resources:
+This generates a new MDX post in `content/posts/` for today's date.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## GitHub Actions
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **CI** (`ci.yml`): Runs lint and build on every push/PR to `main`
+- **Daily Content** (`daily-content.yml`): Generates a new post every day at 06:00 UTC (requires `GEMINI_API_KEY` secret)
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The easiest way to deploy is via the [Vercel Platform](https://vercel.com/new).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Add the `GEMINI_API_KEY` environment variable in your Vercel project settings and the GitHub Actions secret for daily content generation.
