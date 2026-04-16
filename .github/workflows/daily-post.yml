@@ -1,0 +1,303 @@
+name: Daily Post Generator (Gemini)
+
+on:
+  schedule:
+    - cron: '30 5 * * *'  # 05:30 UTC = 06:30 Paris (heure d'été)
+  workflow_dispatch:       # Allow manual trigger for testing
+
+jobs:
+  generate-post:
+    name: Generate MDX post with Gemini
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check GEMINI_API_KEY
+        id: check-secret
+        run: |
+          if [ -z "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "::notice::GEMINI_API_KEY is not set. Skipping post generation."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js
+        if: steps.check-secret.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate MDX post
+        if: steps.check-secret.outputs.skip == 'false'
+        id: generate
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          const https = require('https');
+
+          // ─── Load topics backlog ───────────────────────────────────────────────
+          const topicsPath = path.join(process.cwd(), 'content', 'topics.json');
+          const allTopics = JSON.parse(fs.readFileSync(topicsPath, 'utf-8'));
+
+          // ─── Collect already-used slugs ────────────────────────────────────────
+          function getExistingSlugs(dir) {
+            if (!fs.existsSync(dir)) return [];
+            return fs.readdirSync(dir)
+              .filter(f => f.endsWith('.mdx'))
+              .map(f => f.replace(/\.mdx$/, ''));
+          }
+
+          const usedSlugs = [
+            ...getExistingSlugs('content/guides'),
+            ...getExistingSlugs('content/inspirations'),
+            ...getExistingSlugs('content/selections'),
+          ];
+
+          // ─── Build slug from topic string ──────────────────────────────────────
+          function topicToSlug(topic) {
+            return topic
+              .toLowerCase()
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 60);
+          }
+
+          // ─── Filter out already-used topics ────────────────────────────────────
+          const available = allTopics.filter(t => !usedSlugs.includes(topicToSlug(t.topic)));
+          if (available.length === 0) {
+            console.log('No new topics available. Exiting.');
+            process.exit(0);
+          }
+
+          // ─── Pick a random topic ───────────────────────────────────────────────
+          const chosen = available[Math.floor(Math.random() * available.length)];
+          const slug = topicToSlug(chosen.topic);
+          const today = new Date().toISOString().split('T')[0];
+
+          console.log(`Selected topic: "${chosen.topic}" (type: ${chosen.type})`);
+
+          // ─── Build Gemini prompt ───────────────────────────────────────────────
+          const isSelection = chosen.type === 'selection';
+
+          const systemInstruction = `Tu es un rédacteur expert en rangement et organisation de petits espaces.
+          Tu rédiges pour NidCompact, un magazine premium français.
+          Ton style est : professionnel, engageant, concret, avec un ton magazine de qualité.
+          Tu écris TOUJOURS en français.`;
+
+          const prompt = `Rédige un article MDX complet pour NidCompact sur le sujet : "${chosen.topic}".
+
+          TYPE : ${chosen.type}
+          TAGS : ${chosen.tags.join(', ')}
+
+          CONTRAINTES OBLIGATOIRES :
+          1. Minimum 700 mots de contenu (hors frontmatter)
+          2. Inclure une section ## FAQ avec 3-4 questions/réponses
+          3. ${isSelection ? 'Inclure au début du contenu (après le frontmatter) le composant <AffiliateDisclaimer />' : 'Ne pas inclure AffiliateDisclaimer (article non-affilié)'}
+          4. NE JAMAIS utiliser les mots : garantit, guérit, cure, médical
+          5. Être factuel et pratique, pas exagérément promotionnel
+
+          FORMAT EXACT du frontmatter (respecter scrupuleusement) :
+          ---
+          title: "[Titre accrocheur en français, 60 chars max]"
+          description: "[Description SEO de 140-160 chars]"
+          date: "${today}"
+          slug: "${slug}"
+          type: "${chosen.type}"
+          tags: ${JSON.stringify(chosen.tags)}
+          featured: false
+          affiliate: ${isSelection}
+          ---
+
+          Puis le contenu MDX complet en français avec :
+          - Des titres H2 et H3
+          - Des listes à puces
+          - Des tableaux si pertinent (pour les sélections/comparatifs)
+          - La section ## FAQ à la fin
+          - ${isSelection ? 'Le composant <AffiliateDisclaimer /> tout au début du contenu' : ''}
+
+          Commence directement par le frontmatter, sans aucun texte avant.`;
+
+          // ─── Call Gemini API ───────────────────────────────────────────────────
+          function callGemini(prompt) {
+            return new Promise((resolve, reject) => {
+              const apiKey = process.env.GEMINI_API_KEY;
+              const body = JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] },
+                generationConfig: {
+                  temperature: 0.7,
+                  maxOutputTokens: 4096,
+                },
+              });
+
+              const options = {
+                hostname: 'generativelanguage.googleapis.com',
+                path: `/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(body),
+                },
+              };
+
+              const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  try {
+                    const parsed = JSON.parse(data);
+                    if (parsed.error) {
+                      reject(new Error(`Gemini API error: ${JSON.stringify(parsed.error)}`));
+                      return;
+                    }
+                    const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!text) {
+                      reject(new Error('No text in Gemini response'));
+                      return;
+                    }
+                    resolve(text);
+                  } catch (e) {
+                    reject(new Error(`Failed to parse Gemini response: ${e.message}`));
+                  }
+                });
+              });
+
+              req.on('error', reject);
+              req.write(body);
+              req.end();
+            });
+          }
+
+          // ─── Quality guardrails ────────────────────────────────────────────────
+          function checkQuality(content, type) {
+            const errors = [];
+
+            // Word count (rough)
+            const wordCount = content.split(/\s+/).length;
+            if (wordCount < 600) {
+              errors.push(`Too short: ${wordCount} words (minimum 600)`);
+            }
+
+            // Must have FAQ
+            if (!content.includes('## FAQ')) {
+              errors.push('Missing ## FAQ section');
+            }
+
+            // Affiliate disclaimer for selection posts
+            if (type === 'selection' && !content.includes('AffiliateDisclaimer')) {
+              errors.push('Missing AffiliateDisclaimer for selection post');
+            }
+
+            // Forbidden words
+            const forbidden = ['garantit', 'guérit', 'cure', 'médical'];
+            for (const word of forbidden) {
+              if (content.toLowerCase().includes(word)) {
+                errors.push(`Forbidden word found: "${word}"`);
+              }
+            }
+
+            return errors;
+          }
+
+          // ─── Main execution ────────────────────────────────────────────────────
+          async function main() {
+            console.log('Calling Gemini API...');
+            let mdxContent;
+
+            try {
+              mdxContent = await callGemini(prompt);
+            } catch (err) {
+              console.error('Gemini API call failed:', err.message);
+              process.exit(1);
+            }
+
+            // Quality check
+            const errors = checkQuality(mdxContent, chosen.type);
+            if (errors.length > 0) {
+              console.error('Quality guardrail failures:');
+              errors.forEach(e => console.error(' -', e));
+              process.exit(1);
+            }
+
+            console.log('Quality checks passed.');
+
+            // Write file
+            const typeToDir = { guide: 'guides', inspiration: 'inspirations', selection: 'selections' };
+            const dir = path.join('content', typeToDir[chosen.type]);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+            const filePath = path.join(dir, `${slug}.mdx`);
+            fs.writeFileSync(filePath, mdxContent, 'utf-8');
+            console.log(`Written: ${filePath}`);
+
+            // Output for next steps
+            const branchName = `autopilot/${today}-${slug}`;
+            fs.writeFileSync('/tmp/post_meta.json', JSON.stringify({
+              slug,
+              type: chosen.type,
+              filePath,
+              branchName,
+              title: chosen.topic,
+            }));
+          }
+
+          main().catch(err => {
+            console.error(err);
+            process.exit(1);
+          });
+          EOF
+
+      - name: Create branch and commit
+        if: steps.check-secret.outputs.skip == 'false'
+        run: |
+          META=$(cat /tmp/post_meta.json)
+          BRANCH=$(echo $META | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); console.log(JSON.parse(d).branchName)")
+          FILE=$(echo $META | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); console.log(JSON.parse(d).filePath)")
+          TITLE=$(echo $META | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); console.log(JSON.parse(d).title)")
+
+          git config user.name "NidCompact Bot"
+          git config user.email "bot@nidcompact.fr"
+
+          git checkout -b "$BRANCH"
+          git add "$FILE"
+          git commit -m "feat(content): add autopilot post — $TITLE"
+
+          git push origin "$BRANCH"
+
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+          echo "TITLE=$TITLE" >> $GITHUB_ENV
+
+      - name: Open Pull Request
+        if: steps.check-secret.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "🤖 [Autopilot] $TITLE" \
+            --body "## Nouvel article généré automatiquement
+
+          Ce PR a été créé automatiquement par le workflow **Daily Post Generator** avec Gemini.
+
+          ### Vérifications effectuées
+          - ✅ Minimum 600 mots
+          - ✅ Section FAQ présente
+          - ✅ Disclaimer affilié (si applicable)
+          - ✅ Aucun mot interdit
+
+          ### Processus
+          Dès que les checks CI passent, ce PR sera automatiquement mergé via le workflow \`auto-merge\`.
+
+          > *Généré le $(date -u '+%d/%m/%Y à %H:%M UTC')*" \
+            --base main \
+            --head "$BRANCH" \
+            --label "automerge"
