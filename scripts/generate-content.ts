@@ -55,6 +55,11 @@ Requirements:
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
+  if (fs.existsSync(outputPath)) {
+    console.warn(`⚠️  Content for ${today} already exists at ${outputPath}. Skipping.`);
+    return;
+  }
+
   fs.writeFileSync(outputPath, text, "utf8");
   console.log(`✅ Content written to ${outputPath}`);
 }
