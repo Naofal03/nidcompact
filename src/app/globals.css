@@ -1,0 +1,70 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+:root {
+  --navy-950: #080e1a;
+  --navy-900: #0d1526;
+  --navy-800: #111e36;
+  --navy-700: #1a2d50;
+  --gold-400: #f5c842;
+  --gold-500: #e8b800;
+  --gold-300: #fad96a;
+}
+
+@theme inline {
+  --color-navy-950: var(--navy-950);
+  --color-navy-900: var(--navy-900);
+  --color-navy-800: var(--navy-800);
+  --color-navy-700: var(--navy-700);
+  --color-gold-400: var(--gold-400);
+  --color-gold-500: var(--gold-500);
+  --color-gold-300: var(--gold-300);
+}
+
+body {
+  background: var(--navy-950);
+  color: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.glow-gold {
+  box-shadow: 0 0 20px rgba(245, 200, 66, 0.3), 0 0 40px rgba(245, 200, 66, 0.1);
+}
+
+.glow-gold-text {
+  text-shadow: 0 0 20px rgba(245, 200, 66, 0.5);
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #f5c842 0%, #fad96a 50%, #e8b800 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.card-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-shine::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(245, 200, 66, 0.05) 50%,
+    transparent 70%
+  );
+  transform: rotate(45deg);
+  transition: transform 0.6s ease;
+}
+
+.card-shine:hover::before {
+  transform: rotate(45deg) translate(50%, 50%);
+}
+
