@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import { Calendar, Clock } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { HoverCard } from '@/components/animations/HoverCard'
@@ -39,10 +40,11 @@ export function PostCard({ post, featured = false }: PostCardProps) {
             className={`relative overflow-hidden ${featured ? 'aspect-[16/7]' : 'aspect-[16/9]'}`}
           >
             {post.image ? (
-              <img
+              <Image
                 src={post.image}
                 alt={post.title}
-                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                fill
+                className="object-cover transition-transform duration-500 group-hover:scale-105"
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-navy-700 via-navy-800 to-navy-900 flex items-center justify-center">
